@@ -1,31 +1,102 @@
-// Questa è l'API che riceve la firma dalla Web App
+import { google } from 'googleapis';
+
+// Configura autenticazione Google Drive
+const getDriveClient = () => {
+    try {
+        const credentialsBase64 = process.env.GOOGLE_CREDENTIALS_BASE64;
+        const credentials = JSON.parse(Buffer.from(credentialsBase64, 'base64').toString());
+        
+        // Estrai le parti necessarie dal JSON del Service Account
+        const { client_email, private_key } = credentials;
+        
+        const auth = new google.auth.GoogleAuth({
+            credentials: {
+                client_email: client_email,
+                private_key: private_key
+            },
+            scopes: ['https://www.googleapis.com/auth/drive.file']
+        });
+        
+        return google.drive({ version: 'v3', auth });
+    } catch (error) {
+        console.error('Errore configurazione Drive:', error);
+        return null;
+    }
+};
+
 export default async function handler(req, res) {
     // Permette solo richieste POST
     if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Metodo non consentito' });
+        return res.status(405).json({ error: 'Metodo non consentito. Usa POST.' });
+    }
+
+    // Abilita CORS per la Web App
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
     }
 
     try {
         const { signature, report_id, cliente } = req.body;
 
         if (!signature || !report_id) {
-            return res.status(400).json({ error: 'Dati mancanti' });
+            return res.status(400).json({ error: 'Dati mancanti: signature e report_id sono obbligatori.' });
         }
 
         // Estrai i dati base64 dall'immagine
         const base64Data = signature.replace(/^data:image\/png;base64,/, '');
-        
-        // Salva temporaneamente su Drive usando le credenziali
-        // ... (completiamo insieme dopo)
+        const imageBuffer = Buffer.from(base64Data, 'base64');
 
-        // Per ora restituisci un segnaposto
+        // Nome file: FIRMA_6045_Rossi_SPA.png
+        const nomeFile = `FIRMA_${report_id}_${(cliente || 'Cliente').replace(/\s+/g, '_')}.png`;
+        const folderId = process.env.DRIVE_FOLDER_ID;
+
+        // Carica su Google Drive
+        const drive = getDriveClient();
+        if (!drive) {
+            return res.status(500).json({ error: 'Configurazione Drive fallita.' });
+        }
+
+        // Usa una richiesta multipart per caricare il file
+        const response = await drive.files.create({
+            requestBody: {
+                name: nomeFile,
+                parents: folderId ? [folderId] : [],
+                mimeType: 'image/png'
+            },
+            media: {
+                mimeType: 'image/png',
+                body: require('stream').Readable.from(imageBuffer)
+            },
+            fields: 'id, webViewLink'
+        });
+
+        // Rendi il file pubblicamente accessibile
+        await drive.permissions.create({
+            fileId: response.data.id,
+            requestBody: {
+                type: 'anyone',
+                role: 'reader'
+            }
+        });
+
         return res.status(200).json({
             success: true,
-            url: `https://drive.google.com/file/d/TEMP_ID/view`,
+            url: response.data.webViewLink,
+            file_id: response.data.id,
             report_id: report_id
         });
 
     } catch (error) {
-        return res.status(500).json({ error: error.message });
+        console.error('Errore upload firma:', error);
+        // Se l'errore contiene un messaggio, restituiscilo
+        const message = error.message || 'Errore sconosciuto';
+        return res.status(500).json({ 
+            error: 'Errore durante il caricamento della firma.',
+            details: message 
+        });
     }
 }
