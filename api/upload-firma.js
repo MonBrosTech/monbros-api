@@ -5,6 +5,11 @@ const getOAuth2Client = () => {
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
     const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
+    if (!clientId || !clientSecret || !refreshToken) {
+        console.error('Variabili d\'ambiente mancanti');
+        return null;
+    }
+
     const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
     oauth2Client.setCredentials({ refresh_token: refreshToken });
     return oauth2Client;
@@ -33,10 +38,14 @@ export default async function handler(req, res) {
         const base64Data = signature.replace(/^data:image\/png;base64,/, '');
         const imageBuffer = Buffer.from(base64Data, 'base64');
 
-        const nomeFile = `FIRMA_${report_id}_${(cliente || 'Cliente').replace(/\s+/g, '_')}.png`;
+        const nomeFile = `FIRMA_${report_id}_${(cliente || 'Cliente').replace(/\s+/g, '_').substring(0, 30)}.png`;
         const folderId = process.env.DRIVE_FOLDER_ID;
 
         const auth = getOAuth2Client();
+        if (!auth) {
+            return res.status(500).json({ error: 'Configurazione OAuth fallita.' });
+        }
+
         const drive = google.drive({ version: 'v3', auth });
 
         const response = await drive.files.create({
