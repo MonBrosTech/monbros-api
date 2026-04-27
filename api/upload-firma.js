@@ -1,25 +1,13 @@
 import { google } from 'googleapis';
 
-const getDriveClient = () => {
-    try {
-        const credentialsBase64 = process.env.GOOGLE_CREDENTIALS_BASE64;
-        const credentials = JSON.parse(Buffer.from(credentialsBase64, 'base64').toString());
-        
-        const { client_email, private_key } = credentials;
-        
-        const auth = new google.auth.GoogleAuth({
-            credentials: {
-                client_email: client_email,
-                private_key: private_key
-            },
-            scopes: ['https://www.googleapis.com/auth/drive.file']
-        });
-        
-        return google.drive({ version: 'v3', auth });
-    } catch (error) {
-        console.error('Errore configurazione Drive:', error);
-        return null;
-    }
+const getOAuth2Client = () => {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    return oauth2Client;
 };
 
 export default async function handler(req, res) {
@@ -48,12 +36,9 @@ export default async function handler(req, res) {
         const nomeFile = `FIRMA_${report_id}_${(cliente || 'Cliente').replace(/\s+/g, '_')}.png`;
         const folderId = process.env.DRIVE_FOLDER_ID;
 
-        const drive = getDriveClient();
-        if (!drive) {
-            return res.status(500).json({ error: 'Configurazione Drive fallita.' });
-        }
+        const auth = getOAuth2Client();
+        const drive = google.drive({ version: 'v3', auth });
 
-        // IMPORTANTE: supportAllDrives=true per accedere alla cartella
         const response = await drive.files.create({
             requestBody: {
                 name: nomeFile,
@@ -64,18 +49,15 @@ export default async function handler(req, res) {
                 mimeType: 'image/png',
                 body: require('stream').Readable.from(imageBuffer)
             },
-            fields: 'id, webViewLink',
-            supportsAllDrives: true  // <-- AGGIUNTO
+            fields: 'id, webViewLink'
         });
 
-        // Rendi il file accessibile a chiunque abbia il link
         await drive.permissions.create({
             fileId: response.data.id,
             requestBody: {
                 type: 'anyone',
                 role: 'reader'
-            },
-            supportsAllDrives: true  // <-- AGGIUNTO
+            }
         });
 
         return res.status(200).json({
