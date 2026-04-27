@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "API per firma digitale MonBros",
   "dependencies": {
-    "googleapis": "^128.0.0",
-    "multer": "^1.4.5-lts.1"
+    "googleapis": "^128.0.0"
   }
 }
