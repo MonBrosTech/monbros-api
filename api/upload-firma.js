@@ -1,12 +1,10 @@
 import { google } from 'googleapis';
 
-// Configura autenticazione Google Drive
 const getDriveClient = () => {
     try {
         const credentialsBase64 = process.env.GOOGLE_CREDENTIALS_BASE64;
         const credentials = JSON.parse(Buffer.from(credentialsBase64, 'base64').toString());
         
-        // Estrai le parti necessarie dal JSON del Service Account
         const { client_email, private_key } = credentials;
         
         const auth = new google.auth.GoogleAuth({
@@ -25,12 +23,10 @@ const getDriveClient = () => {
 };
 
 export default async function handler(req, res) {
-    // Permette solo richieste POST
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Metodo non consentito. Usa POST.' });
     }
 
-    // Abilita CORS per la Web App
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -43,24 +39,21 @@ export default async function handler(req, res) {
         const { signature, report_id, cliente } = req.body;
 
         if (!signature || !report_id) {
-            return res.status(400).json({ error: 'Dati mancanti: signature e report_id sono obbligatori.' });
+            return res.status(400).json({ error: 'Dati mancanti.' });
         }
 
-        // Estrai i dati base64 dall'immagine
         const base64Data = signature.replace(/^data:image\/png;base64,/, '');
         const imageBuffer = Buffer.from(base64Data, 'base64');
 
-        // Nome file: FIRMA_6045_Rossi_SPA.png
         const nomeFile = `FIRMA_${report_id}_${(cliente || 'Cliente').replace(/\s+/g, '_')}.png`;
         const folderId = process.env.DRIVE_FOLDER_ID;
 
-        // Carica su Google Drive
         const drive = getDriveClient();
         if (!drive) {
             return res.status(500).json({ error: 'Configurazione Drive fallita.' });
         }
 
-        // Usa una richiesta multipart per caricare il file
+        // IMPORTANTE: supportAllDrives=true per accedere alla cartella
         const response = await drive.files.create({
             requestBody: {
                 name: nomeFile,
@@ -71,16 +64,18 @@ export default async function handler(req, res) {
                 mimeType: 'image/png',
                 body: require('stream').Readable.from(imageBuffer)
             },
-            fields: 'id, webViewLink'
+            fields: 'id, webViewLink',
+            supportsAllDrives: true  // <-- AGGIUNTO
         });
 
-        // Rendi il file pubblicamente accessibile
+        // Rendi il file accessibile a chiunque abbia il link
         await drive.permissions.create({
             fileId: response.data.id,
             requestBody: {
                 type: 'anyone',
                 role: 'reader'
-            }
+            },
+            supportsAllDrives: true  // <-- AGGIUNTO
         });
 
         return res.status(200).json({
@@ -92,11 +87,9 @@ export default async function handler(req, res) {
 
     } catch (error) {
         console.error('Errore upload firma:', error);
-        // Se l'errore contiene un messaggio, restituiscilo
-        const message = error.message || 'Errore sconosciuto';
         return res.status(500).json({ 
             error: 'Errore durante il caricamento della firma.',
-            details: message 
+            details: error.message 
         });
     }
 }
