@@ -15,18 +15,30 @@ const getOAuth2Client = () => {
     return oauth2Client;
 };
 
+// ============================================================
+// GESTIONE CORS MIGLIORATA
+// ============================================================
+const allowCors = (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    // Gestisce la richiesta preflight OPTIONS
+    if (req.method === 'OPTIONS') {
+        res.status(200).end();
+        return true;
+    }
+    return false;
+};
+
 export default async function handler(req, res) {
+    // Gestione CORS preflight
+    if (allowCors(req, res)) return;
+
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Metodo non consentito. Usa POST.' });
-    }
-
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Max-Age', '86400');
-
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
     }
 
     try {
